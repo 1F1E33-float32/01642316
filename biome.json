@@ -1,0 +1,7 @@
+{
+	"$schema": "https://biomejs.dev",
+	"formatter": {
+		"enabled": true,
+		"lineWidth": 150
+	}
+}

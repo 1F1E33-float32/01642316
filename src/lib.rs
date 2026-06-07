@@ -18,6 +18,8 @@ type NapiStatus = i32;
 
 const NAPI_OK: NapiStatus = 0;
 const NAPI_AUTO_LENGTH: usize = usize::MAX;
+const OPCODE_ENV_CHECK: i32 = 0x352b4710;
+const OPCODE_LOAD_JSON: i32 = 0x1ed53fef;
 
 type NapiCreateStringUtf8 = unsafe extern "C" fn(NapiEnv, *const c_char, usize, *mut NapiValue) -> NapiStatus;
 type NapiRunScript = unsafe extern "C" fn(NapiEnv, NapiValue, *mut NapiValue) -> NapiStatus;
@@ -35,6 +37,8 @@ type NapiCallFunction = unsafe extern "C" fn(NapiEnv, NapiValue, NapiValue, usiz
 type NapiThrowError = unsafe extern "C" fn(NapiEnv, *const c_char, *const c_char) -> NapiStatus;
 type NapiGetBoolean = unsafe extern "C" fn(NapiEnv, bool, *mut NapiValue) -> NapiStatus;
 type NapiCreateObject = unsafe extern "C" fn(NapiEnv, *mut NapiValue) -> NapiStatus;
+type NapiGetElement = unsafe extern "C" fn(NapiEnv, NapiValue, u32, *mut NapiValue) -> NapiStatus;
+type NapiGetValueInt32 = unsafe extern "C" fn(NapiEnv, NapiValue, *mut i32) -> NapiStatus;
 
 struct Napi {
     create_string_utf8: NapiCreateStringUtf8,
@@ -52,327 +56,21 @@ struct Napi {
     throw_error: NapiThrowError,
     get_boolean: NapiGetBoolean,
     create_object: NapiCreateObject,
+    get_element: NapiGetElement,
+    get_value_int32: NapiGetValueInt32,
 }
 
 static NAPI: OnceLock<Option<Napi>> = OnceLock::new();
 
-const INIT_SCRIPT: &str = r##"
-(function() {
-  const fs = require("fs");
-  const appendFileSync = fs.appendFileSync.bind(fs);
-  function mzRustLog(message) {
-    try {
-      appendFileSync("mz_rust.log", "[mz-js] " + String(message) + "\r\n");
-    } catch (e) {}
-  }
-  globalThis.__mzRustLog = mzRustLog;
-  mzRustLog("first script guard installed");
-  return true;
-})()
-"##;
+const INIT_SCRIPT: &str = include_str!("../js/init.js");
 
-const FS_HOOK_SCRIPT: &str = r##"
-(function() {
-  const fs = require("fs");
-  const path = require("path");
-  const originals = globalThis.__mzFsOriginals || (globalThis.__mzFsOriginals = {
-    writeFile: fs.writeFile,
-    writeFileSync: fs.writeFileSync,
-    appendFile: fs.appendFile,
-    appendFileSync: fs.appendFileSync
-  });
-  function log(message) {
-    try {
-      originals.appendFileSync.call(fs, path.join(process.cwd(), "mz_rust.log"), "[mz-js] " + String(message) + "\r\n");
-    } catch (e) {}
-  }
-  if (fs.__mzRustHooked) {
-    log("fs hook already installed");
-    return true;
-  }
-  function normalizeWin(p) {
-    return String(p || "").replace(/\//g, "\\").toLowerCase();
-  }
-  function isAllowedFsWrite(file) {
-    const full = path.resolve(process.cwd(), String(file));
-    const fullLower = normalizeWin(full);
-    const rootLower = normalizeWin(process.cwd());
-    const base = path.basename(full).toLowerCase();
-    return fullLower.indexOf("\\save\\") >= 0 ||
-      base === "package.json" ||
-      base === "c" ||
-      base === "mz_rust.log" ||
-      (fullLower.indexOf(rootLower + "\\data\\") === 0 && base.endsWith(".rmmzsave"));
-  }
-  function rejectIfNeeded(file) {
-    if (!isAllowedFsWrite(file)) {
-      const err = new Error("blocked by mz native fs policy: " + file);
-      err.code = "EACCES";
-      throw err;
-    }
-  }
-  fs.writeFile = function(file, ...args) {
-    try { rejectIfNeeded(file); } catch (e) {
-      const cb = args.find(v => typeof v === "function");
-      if (cb) return process.nextTick(cb, e);
-      throw e;
-    }
-    return originals.writeFile.call(this, file, ...args);
-  };
-  fs.appendFile = function(file, ...args) {
-    try { rejectIfNeeded(file); } catch (e) {
-      const cb = args.find(v => typeof v === "function");
-      if (cb) return process.nextTick(cb, e);
-      throw e;
-    }
-    return originals.appendFile.call(this, file, ...args);
-  };
-  fs.writeFileSync = function(file, ...args) { rejectIfNeeded(file); return originals.writeFileSync.call(this, file, ...args); };
-  fs.appendFileSync = function(file, ...args) { rejectIfNeeded(file); return originals.appendFileSync.call(this, file, ...args); };
-  Object.defineProperty(fs, "__mzRustHooked", { value: true });
-  log("fs write hooks installed");
-  return true;
-})()
-"##;
+const FS_HOOK_SCRIPT: &str = include_str!("../js/fs_hook.js");
 
-const HOOK_SCRIPT: &str = r##"
-(function() {
-  const target = globalThis.__mzHookTarget;
-  const native = globalThis.__mzNative;
-  const fs = require("fs");
-  const path = require("path");
-  const originals = globalThis.__mzFsOriginals || (globalThis.__mzFsOriginals = {
-    writeFile: fs.writeFile,
-    writeFileSync: fs.writeFileSync,
-    appendFile: fs.appendFile,
-    appendFileSync: fs.appendFileSync
-  });
-  function log(message) {
-    try {
-      if (typeof globalThis.__mzRustLog === "function") {
-        globalThis.__mzRustLog(message);
-      } else {
-        originals.appendFileSync.call(fs, path.join(process.cwd(), "mz_rust.log"), "[mz-js] " + String(message) + "\r\n");
-      }
-    } catch (e) {}
-  }
-  function normalizeUrlPath(url) {
-    let p = String(url || "").split("?")[0].split("#")[0].replace(/\\/g, "/");
-    try { p = decodeURIComponent(p); } catch (_) {}
-    const out = [];
-    for (const part of p.split("/")) {
-      if (!part || part === ".") continue;
-      if (part === "..") out.pop();
-      else out.push(part);
-    }
-    return out.join("/");
-  }
-  function jsonVaultKey(url) {
-    const p = normalizeUrlPath(url);
-    const l = p.toLowerCase();
-    const dx = l.indexOf("dataex/");
-    if (dx >= 0) return p.slice(dx);
-    const di = l.indexOf("data/");
-    if (di >= 0) return p.slice(di + 5);
-    const z = p.lastIndexOf("/");
-    return z >= 0 ? p.slice(z + 1) : p;
-  }
-  function toArrayBuffer(value) {
-    if (value instanceof ArrayBuffer) return value;
-    const b = Buffer.from(String(value), "utf8");
-    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
-  }
-  function toTargetArrayBuffer(value) {
-    const source = new Uint8Array(value);
-    const ArrayBufferCtor = target && target.ArrayBuffer ? target.ArrayBuffer : ArrayBuffer;
-    const Uint8ArrayCtor = target && target.Uint8Array ? target.Uint8Array : Uint8Array;
-    const out = new Uint8ArrayCtor(new ArrayBufferCtor(source.length));
-    for (let i = 0; i < source.length; i++) out[i] = source[i];
-    return out.buffer;
-  }
-  function installDiagnostics(obj) {
-    if (obj && typeof obj.addEventListener === "function" && !obj.__mzDiagnosticsHooked) {
-      try {
-        obj.addEventListener("error", event => log("window error " + ((event && event.error && event.error.stack) || (event && event.message) || "")));
-        obj.addEventListener("unhandledrejection", event => log("window unhandledrejection " + ((event && event.reason && event.reason.stack) || (event && event.reason) || "")));
-        Object.defineProperty(obj, "__mzDiagnosticsHooked", { value: true });
-      } catch (_) {}
-    }
-  }
-  function installXhrHook(obj) {
-    if (!obj || typeof obj.XMLHttpRequest !== "function") return;
-    if (obj.XMLHttpRequest.__mzRustHooked) return;
-    const NativeXMLHttpRequest = obj.XMLHttpRequest;
-    log("installXhrHook target=" + (obj === globalThis ? "globalThis" : "object"));
-    class MzXMLHttpRequest {
-      constructor() {
-        this._xhr = new NativeXMLHttpRequest();
-        this._listeners = Object.create(null);
-        this._intercept = false;
-        this._method = "";
-        this._url = "";
-        this.readyState = 0;
-        this.status = 0;
-        this.statusText = "";
-        this.response = null;
-        this.responseText = "";
-        this.responseType = "";
-        this.responseURL = "";
-        this.onreadystatechange = null;
-        this.onload = null;
-        this.onerror = null;
-        this.onabort = null;
-        this.ontimeout = null;
-        this.onloadend = null;
-        for (const type of ["readystatechange", "load", "error", "abort", "timeout", "loadend"]) {
-          this._xhr.addEventListener(type, event => {
-            if (this._intercept) return;
-            this._copyNativeState(type);
-            this._emit(type, event);
-          });
-        }
-      }
-      open(method, url, async = true, user, password) {
-        this._method = String(method || "GET").toUpperCase();
-        this._url = String(url || "");
-        const lower = normalizeUrlPath(this._url).toLowerCase();
-        this._intercept = this._method === "GET" && (/(^|\/)data(ex)?\/.+\.json$/.test(lower) || /(^|\/)img\/.+\.png_?$/.test(lower));
-        log("xhr open method=" + this._method + " url=" + this._url + " intercept=" + this._intercept);
-        this.readyState = 1;
-        this.responseURL = this._url;
-        this._emit("readystatechange");
-        if (!this._intercept) return this._xhr.open(method, url, async, user, password);
-      }
-      overrideMimeType(mimeType) { this._mimeType = mimeType; if (!this._intercept && this._xhr.overrideMimeType) return this._xhr.overrideMimeType(mimeType); }
-      setRequestHeader(name, value) { if (!this._intercept) return this._xhr.setRequestHeader(name, value); }
-      getResponseHeader(name) {
-        if (!this._intercept) return this._xhr.getResponseHeader(name);
-        return String(name || "").toLowerCase() === "content-type" ? (this._contentType || null) : null;
-      }
-      getAllResponseHeaders() { if (!this._intercept) return this._xhr.getAllResponseHeaders(); return this._contentType ? "Content-Type: " + this._contentType + "\r\n" : ""; }
-      addEventListener(type, listener) { (this._listeners[type] || (this._listeners[type] = [])).push(listener); }
-      removeEventListener(type, listener) { const list = this._listeners[type]; if (!list) return; const i = list.indexOf(listener); if (i >= 0) list.splice(i, 1); }
-      abort() { if (!this._intercept) return this._xhr.abort(); this.readyState = 0; this._emit("abort"); this._emit("loadend"); }
-      send(...args) {
-        if (!this._intercept) {
-          this._xhr.responseType = this.responseType || "";
-          return this._xhr.send(...args);
-        }
-        const lower = normalizeUrlPath(this._url).toLowerCase();
-        this.readyState = 2;
-        this._emit("readystatechange");
-        setTimeout(() => {
-          try {
-            if (/(^|\/)data(ex)?\/.+\.json$/.test(lower)) {
-              const text = native.loadVaultJsonText(jsonVaultKey(this._url));
-              this.status = 200; this.statusText = "OK"; this.readyState = 4;
-              this.responseText = text;
-              this.response = this.responseType === "arraybuffer" ? toTargetArrayBuffer(toArrayBuffer(text)) : text;
-              this._contentType = "application/json";
-              log("xhr json ok url=" + this._url + " bytes=" + text.length);
-            } else {
-              const buf = native.readImageResource(this._url);
-              if (!buf) throw new Error("image record not found");
-              this.status = 200; this.statusText = "OK"; this.readyState = 4;
-              this.response = toTargetArrayBuffer(buf); this.responseText = ""; this._contentType = "application/octet-stream";
-              log("xhr image ok url=" + this._url + " bytes=" + buf.byteLength);
-            }
-            this._emit("readystatechange"); this._emit("load"); this._emit("loadend");
-          } catch (e) {
-            log("xhr fail url=" + this._url + " error=" + (e && e.message ? e.message : e));
-            this.status = 404; this.statusText = "Not Found"; this.readyState = 4;
-            this._emit("readystatechange"); this._emit("error", e); this._emit("loadend");
-          }
-        }, 0);
-      }
-      _emit(type, detail) {
-        const event = { type, target: this, currentTarget: this, detail };
-        const handler = this["on" + type];
-        if (typeof handler === "function") handler.call(this, event);
-        const list = this._listeners[type];
-        if (list) for (const listener of list.slice()) {
-          if (typeof listener === "function") listener.call(this, event);
-          else if (listener && typeof listener.handleEvent === "function") listener.handleEvent(event);
-        }
-      }
-      _copyNativeState(eventType) {
-        try { this.readyState = this._xhr.readyState; } catch (_) {}
-        try { this.status = this._xhr.status; } catch (_) {}
-        try { this.statusText = this._xhr.statusText; } catch (_) {}
-        try { this.response = this._xhr.response; } catch (_) {}
-        try { const rt = String(this._xhr.responseType || ""); this.responseText = (rt === "" || rt === "text") ? this._xhr.responseText : ""; } catch (e) { this.responseText = ""; }
-        try { this.responseURL = this._xhr.responseURL; } catch (_) {}
-      }
-    }
-    Object.defineProperty(MzXMLHttpRequest, "__mzRustHooked", { value: true });
-    for (const [name, value] of [["UNSENT",0],["OPENED",1],["HEADERS_RECEIVED",2],["LOADING",3],["DONE",4]]) {
-      Object.defineProperty(MzXMLHttpRequest, name, { value, enumerable: true });
-      Object.defineProperty(MzXMLHttpRequest.prototype, name, { value, enumerable: true });
-    }
-    obj.XMLHttpRequest = MzXMLHttpRequest;
-  }
-  function installFetchHook(obj) {
-    if (!obj || typeof obj.fetch !== "function" || obj.fetch.__mzRustHooked) return;
-    const nativeFetch = obj.fetch;
-    const hookedFetch = function(input, init) {
-      const url = typeof input === "string" ? input : input && input.url;
-      const lower = normalizeUrlPath(url).toLowerCase();
-      if (/(^|\/)data(ex)?\/.+\.json$/.test(lower)) {
-        try { return Promise.resolve(new Response(native.loadVaultJsonText(jsonVaultKey(url)), { status: 200, headers: { "content-type": "application/json" } })); }
-        catch (e) { return Promise.reject(e); }
-      }
-      return nativeFetch.call(this, input, init);
-    };
-    Object.defineProperty(hookedFetch, "__mzRustHooked", { value: true });
-    obj.fetch = hookedFetch;
-  }
-  log("installWindowHooks called hasTarget=" + !!target + " hasXHR=" + !!(target && target.XMLHttpRequest));
-  installDiagnostics(target);
-  installXhrHook(target);
-  installFetchHook(target);
-  log("installWindowHooks done hooked=" + !!(target && target.XMLHttpRequest && target.XMLHttpRequest.__mzRustHooked));
-  return true;
-})()
-"##;
+const JSON_HOOK_SCRIPT: &str = include_str!("../js/json_hook.js");
 
-const AUTO_HOOK_SCRIPT: &str = r##"
-(function() {
-  const native = globalThis.__mzNative;
-  if (!native || typeof native.installWindowHooks !== "function") return false;
-  function install(target) {
-    try {
-      if (target) native.installWindowHooks(target);
-    } catch (e) {
-      try {
-        if (typeof globalThis.__mzRustLog === "function") {
-          globalThis.__mzRustLog("auto hook target failed " + (e && e.message ? e.message : e));
-        }
-      } catch (_) {}
-    }
-  }
-  install(globalThis);
-  try { if (typeof window !== "undefined") install(window); } catch (_) {}
-  try {
-    if (typeof nw === "object" && nw.Window) {
-      const win = nw.Window.get();
-      if (win && win.window) install(win.window);
-    }
-  } catch (_) {}
-  try {
-    setTimeout(function() {
-      install(globalThis);
-      try { if (typeof window !== "undefined") install(window); } catch (_) {}
-      try {
-        if (typeof nw === "object" && nw.Window) {
-          const win = nw.Window.get();
-          if (win && win.window) install(win.window);
-        }
-      } catch (_) {}
-    }, 0);
-  } catch (_) {}
-  return true;
-})()
-"##;
+const HOOK_SCRIPT: &str = include_str!("../js/window_hook.js");
+
+const AUTO_HOOK_SCRIPT: &str = include_str!("../js/auto_hook.js");
 
 fn init_console() {
     unsafe {
@@ -448,6 +146,8 @@ unsafe fn load_napi() -> Option<Napi> {
         let throw_error = resolve_symbol(c"napi_throw_error");
         let get_boolean = resolve_symbol(c"napi_get_boolean");
         let create_object = resolve_symbol(c"napi_create_object");
+        let get_element = resolve_symbol(c"napi_get_element");
+        let get_value_int32 = resolve_symbol(c"napi_get_value_int32");
 
         for (name, ptr) in [
             ("napi_create_string_utf8", create_string_utf8),
@@ -465,6 +165,8 @@ unsafe fn load_napi() -> Option<Napi> {
             ("napi_throw_error", throw_error),
             ("napi_get_boolean", get_boolean),
             ("napi_create_object", create_object),
+            ("napi_get_element", get_element),
+            ("napi_get_value_int32", get_value_int32),
         ] {
             if ptr.is_null() {
                 log(&format!("missing Node-API symbol {name}"));
@@ -488,6 +190,8 @@ unsafe fn load_napi() -> Option<Napi> {
             || throw_error.is_null()
             || get_boolean.is_null()
             || create_object.is_null()
+            || get_element.is_null()
+            || get_value_int32.is_null()
         {
             None
         } else {
@@ -507,6 +211,8 @@ unsafe fn load_napi() -> Option<Napi> {
                 throw_error: transmute::<*const c_void, NapiThrowError>(throw_error),
                 get_boolean: transmute::<*const c_void, NapiGetBoolean>(get_boolean),
                 create_object: transmute::<*const c_void, NapiCreateObject>(create_object),
+                get_element: transmute::<*const c_void, NapiGetElement>(get_element),
+                get_value_int32: transmute::<*const c_void, NapiGetValueInt32>(get_value_int32),
             })
         }
     }
@@ -594,6 +300,29 @@ unsafe fn value_to_string(env: NapiEnv, value: NapiValue) -> Result<String, Stri
     String::from_utf8(buf).map_err(|e| format!("utf8 argument failed: {e}"))
 }
 
+unsafe fn value_to_i32(env: NapiEnv, value: NapiValue) -> Result<i32, String> {
+    let napi = napi().ok_or_else(|| "N-API unavailable".to_string())?;
+    let mut out = 0i32;
+    let status = unsafe { (napi.get_value_int32)(env, value, &mut out) };
+    if status == NAPI_OK {
+        Ok(out)
+    } else {
+        Err(format!("napi_get_value_int32 failed status={status}"))
+    }
+}
+
+unsafe fn get_element(env: NapiEnv, value: NapiValue, index: u32) -> Option<NapiValue> {
+    let napi = napi()?;
+    let mut out = null_mut();
+    let status = unsafe { (napi.get_element)(env, value, index, &mut out) };
+    if status == NAPI_OK && !out.is_null() {
+        Some(out)
+    } else {
+        log(&format!("napi_get_element({index}) failed status={status}"));
+        None
+    }
+}
+
 unsafe fn create_arraybuffer(env: NapiEnv, bytes: &[u8]) -> Option<NapiValue> {
     let napi = napi()?;
     let mut data = null_mut();
@@ -661,11 +390,14 @@ unsafe extern "C" fn cb_load_vault_json_text(env: NapiEnv, info: NapiCallbackInf
     }
 }
 
-unsafe extern "C" fn cb_load_vault_json(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
-    let text_value = unsafe { cb_load_vault_json_text(env, info) };
-    if text_value.is_null() {
-        return text_value;
-    }
+unsafe fn load_vault_json_value(env: NapiEnv, key: &str) -> NapiValue {
+    let text = match resource::load_vault_json_text(key) {
+        Ok(text) => text,
+        Err(e) => return unsafe { throw_error(env, &e) },
+    };
+    let Some(text_value) = (unsafe { create_string(env, &text) }) else {
+        return unsafe { get_null(env) };
+    };
     let Some(global) = (unsafe { get_global(env) }) else {
         return unsafe { get_null(env) };
     };
@@ -676,9 +408,57 @@ unsafe extern "C" fn cb_load_vault_json(env: NapiEnv, info: NapiCallbackInfo) ->
     let mut parsed = null_mut();
     let status = unsafe { (napi().unwrap().run_script)(env, script, &mut parsed) };
     if status == NAPI_OK && !parsed.is_null() {
+        log(&format!("loadVaultJson object ok key={key}"));
         parsed
     } else {
         unsafe { throw_error(env, &format!("JSON.parse run_script failed status={status}")) }
+    }
+}
+
+unsafe extern "C" fn cb_load_vault_json(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
+    let (args, _) = unsafe { get_args(env, info, 1) };
+    let Some(first) = args.first().copied() else {
+        return unsafe { throw_error(env, "loadVaultJson requires a key") };
+    };
+    let key = match unsafe { value_to_string(env, first) } {
+        Ok(v) => v,
+        Err(e) => return unsafe { throw_error(env, &e) },
+    };
+    unsafe { load_vault_json_value(env, &key) }
+}
+
+unsafe extern "C" fn cb_dispatch(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
+    let (args, _) = unsafe { get_args(env, info, 2) };
+    let Some(first) = args.first().copied() else {
+        return unsafe { throw_error(env, "dispatch requires an opcode array") };
+    };
+    let opcode_value = unsafe { get_element(env, first, 0).unwrap_or(first) };
+    let opcode = match unsafe { value_to_i32(env, opcode_value) } {
+        Ok(v) => v,
+        Err(e) => return unsafe { throw_error(env, &e) },
+    };
+    match opcode {
+        OPCODE_ENV_CHECK => {
+            log("dispatcher opcode=0x352b4710 slot=0 handler00");
+            unsafe { create_bool(env, true) }
+        }
+        OPCODE_LOAD_JSON => {
+            let key_value = if args.len() >= 2 {
+                args[1]
+            } else {
+                match unsafe { get_element(env, first, 1) } {
+                    Some(v) => v,
+                    None => return unsafe { throw_error(env, "dispatch JSON opcode requires key") },
+                }
+            };
+            let key = match unsafe { value_to_string(env, key_value) } {
+                Ok(v) => v,
+                Err(e) => return unsafe { throw_error(env, &e) },
+            };
+            log(&format!("dispatcher opcode=0x1ed53fef slot=9 loadVaultJson key={key}"));
+            unsafe { load_vault_json_value(env, &key) }
+        }
+        _ => unsafe { throw_error(env, &format!("unsupported dispatcher opcode=0x{opcode:08x}")) },
     }
 }
 
@@ -823,6 +603,7 @@ unsafe fn install_fs_write_hooks(env: NapiEnv) {
 unsafe fn define_core_exports(env: NapiEnv, exports: NapiValue) {
     log("napi_define_properties core exports begin");
     unsafe {
+        export_function(env, exports, c"dispatch", cb_dispatch);
         export_function(env, exports, c"loadVaultJson", cb_load_vault_json);
         export_function(env, exports, c"loadVaultJsonText", cb_load_vault_json_text);
         export_function(env, exports, c"readImageResource", cb_read_image_resource);
@@ -831,6 +612,9 @@ unsafe fn define_core_exports(env: NapiEnv, exports: NapiValue) {
         export_function(env, exports, c"installWindowHooks", cb_install_window_hooks);
         if let Some(global) = get_global(env) {
             set_named(env, global, c"__mzNative", exports);
+            if let Some(dispatch) = get_named(env, exports, c"dispatch") {
+                set_named(env, global, c"__mzInvokeVM", dispatch);
+            }
         }
     }
 }
@@ -838,6 +622,7 @@ unsafe fn define_core_exports(env: NapiEnv, exports: NapiValue) {
 unsafe fn install_first_script_guard(env: NapiEnv, _exports: NapiValue) {
     log("JsRuntime::installFirstScriptGuard begin");
     let _ = unsafe { run_script_named(env, "JsRuntime::installFirstScriptGuard", INIT_SCRIPT) };
+    let _ = unsafe { run_script_named(env, "JsRuntime::installFirstJsonHook", JSON_HOOK_SCRIPT) };
 }
 
 unsafe fn install_second_script_guard(env: NapiEnv, exports: NapiValue) -> NapiValue {
