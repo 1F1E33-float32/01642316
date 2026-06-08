@@ -15,7 +15,6 @@
 		} catch (e) {}
 	}
 	if (fs.__mzRustHooked) {
-		log("fs hook already installed");
 		return true;
 	}
 	function normalizeWin(p) {

@@ -156,6 +156,12 @@
 		fixDbArrays(value, 0);
 		return value;
 	}
+	let loggedJsonPath = false;
+	function logJsonPath(key) {
+		if (loggedJsonPath) return;
+		loggedJsonPath = true;
+		log("json object path key=" + key);
+	}
 	function patchDataManagerOnXhrLoad(target) {
 		_mzGameWin = target || _mzGameWin || gameWindow();
 		const DM = target && target.DataManager;
@@ -211,7 +217,7 @@
 							return;
 						}
 						setDataGlobal(name, value);
-						log("json hook ok name=" + name + " key=" + key);
+						logJsonPath(key);
 						dm.onLoad(value);
 					} catch (e) {
 						log("json hook fail name=" + name + " key=" + key + " error=" + (e && e.message ? e.message : e));
@@ -248,7 +254,7 @@
 						}
 						xhr._mzVaultParsed = value;
 						fillXhr(xhr, value);
-						log("xhr json object ok url=" + xhr._mzU + " key=" + key);
+						logJsonPath(key);
 						fireXhrDone(xhr, true);
 					} catch (e) {
 						log("xhr json fail key=" + key + " error=" + (e && e.message ? e.message : e));
@@ -278,6 +284,7 @@
 								resolve(new Response(null, { status: 404 }));
 								return;
 							}
+							logJsonPath(jsonVaultKey(url));
 							resolve(new Response(jsonStringify(value), { status: 200, headers: { "Content-Type": "application/json" } }));
 						} catch (_) {
 							resolve(new Response(null, { status: 404 }));

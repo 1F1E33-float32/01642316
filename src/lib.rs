@@ -38,13 +38,24 @@ type NapiCreateUint32 = unsafe extern "C" fn(NapiEnv, u32, *mut NapiValue) -> Na
 type NapiCallFunction = unsafe extern "C" fn(NapiEnv, NapiValue, NapiValue, usize, *const NapiValue, *mut NapiValue) -> NapiStatus;
 type NapiThrowError = unsafe extern "C" fn(NapiEnv, *const c_char, *const c_char) -> NapiStatus;
 type NapiGetBoolean = unsafe extern "C" fn(NapiEnv, bool, *mut NapiValue) -> NapiStatus;
-type NapiCreateObject = unsafe extern "C" fn(NapiEnv, *mut NapiValue) -> NapiStatus;
 type NapiGetElement = unsafe extern "C" fn(NapiEnv, NapiValue, u32, *mut NapiValue) -> NapiStatus;
 type NapiGetValueInt32 = unsafe extern "C" fn(NapiEnv, NapiValue, *mut i32) -> NapiStatus;
 type NapiGetUndefined = unsafe extern "C" fn(NapiEnv, *mut NapiValue) -> NapiStatus;
 type NapiTypeof = unsafe extern "C" fn(NapiEnv, NapiValue, *mut i32) -> NapiStatus;
 type NapiThreadsafeFunctionCallJs = unsafe extern "C" fn(NapiEnv, NapiValue, *mut c_void, *mut c_void);
-type NapiCreateThreadsafeFunction = unsafe extern "C" fn(NapiEnv, NapiValue, NapiValue, NapiValue, usize, usize, *mut c_void, *mut c_void, *mut c_void, Option<NapiThreadsafeFunctionCallJs>, *mut NapiThreadsafeFunction) -> NapiStatus;
+type NapiCreateThreadsafeFunction = unsafe extern "C" fn(
+    NapiEnv,
+    NapiValue,
+    NapiValue,
+    NapiValue,
+    usize,
+    usize,
+    *mut c_void,
+    *mut c_void,
+    *mut c_void,
+    Option<NapiThreadsafeFunctionCallJs>,
+    *mut NapiThreadsafeFunction,
+) -> NapiStatus;
 type NapiCallThreadsafeFunction = unsafe extern "C" fn(NapiThreadsafeFunction, *mut c_void, i32) -> NapiStatus;
 type NapiReleaseThreadsafeFunction = unsafe extern "C" fn(NapiThreadsafeFunction, i32) -> NapiStatus;
 
@@ -63,7 +74,6 @@ struct Napi {
     call_function: NapiCallFunction,
     throw_error: NapiThrowError,
     get_boolean: NapiGetBoolean,
-    create_object: NapiCreateObject,
     get_element: NapiGetElement,
     get_value_int32: NapiGetValueInt32,
     get_undefined: NapiGetUndefined,
@@ -163,7 +173,6 @@ unsafe fn load_napi() -> Option<Napi> {
         let call_function = resolve_symbol(c"napi_call_function");
         let throw_error = resolve_symbol(c"napi_throw_error");
         let get_boolean = resolve_symbol(c"napi_get_boolean");
-        let create_object = resolve_symbol(c"napi_create_object");
         let get_element = resolve_symbol(c"napi_get_element");
         let get_value_int32 = resolve_symbol(c"napi_get_value_int32");
         let get_undefined = resolve_symbol(c"napi_get_undefined");
@@ -187,7 +196,6 @@ unsafe fn load_napi() -> Option<Napi> {
             ("napi_call_function", call_function),
             ("napi_throw_error", throw_error),
             ("napi_get_boolean", get_boolean),
-            ("napi_create_object", create_object),
             ("napi_get_element", get_element),
             ("napi_get_value_int32", get_value_int32),
             ("napi_get_undefined", get_undefined),
@@ -198,8 +206,6 @@ unsafe fn load_napi() -> Option<Napi> {
         ] {
             if ptr.is_null() {
                 log(&format!("missing Node-API symbol {name}"));
-            } else {
-                log(&format!("loaded Node-API symbol {name}"));
             }
         }
 
@@ -217,7 +223,6 @@ unsafe fn load_napi() -> Option<Napi> {
             || call_function.is_null()
             || throw_error.is_null()
             || get_boolean.is_null()
-            || create_object.is_null()
             || get_element.is_null()
             || get_value_int32.is_null()
             || get_undefined.is_null()
@@ -243,7 +248,6 @@ unsafe fn load_napi() -> Option<Napi> {
                 call_function: transmute::<*const c_void, NapiCallFunction>(call_function),
                 throw_error: transmute::<*const c_void, NapiThrowError>(throw_error),
                 get_boolean: transmute::<*const c_void, NapiGetBoolean>(get_boolean),
-                create_object: transmute::<*const c_void, NapiCreateObject>(create_object),
                 get_element: transmute::<*const c_void, NapiGetElement>(get_element),
                 get_value_int32: transmute::<*const c_void, NapiGetValueInt32>(get_value_int32),
                 get_undefined: transmute::<*const c_void, NapiGetUndefined>(get_undefined),
@@ -288,7 +292,9 @@ unsafe fn get_named(env: NapiEnv, object: NapiValue, name: &'static CStr) -> Opt
 unsafe fn set_named(env: NapiEnv, object: NapiValue, name: &'static CStr, value: NapiValue) {
     if let Some(napi) = napi() {
         let status = unsafe { (napi.set_named_property)(env, object, name.as_ptr(), value) };
-        log(&format!("napi_set_named_property({}) status={status}", name.to_string_lossy()));
+        if status != NAPI_OK {
+            log(&format!("napi_set_named_property({}) failed status={status}", name.to_string_lossy()));
+        }
     }
 }
 
@@ -350,7 +356,11 @@ unsafe fn value_to_i32(env: NapiEnv, value: NapiValue) -> Result<i32, String> {
     let napi = napi().ok_or_else(|| "N-API unavailable".to_string())?;
     let mut out = 0i32;
     let status = unsafe { (napi.get_value_int32)(env, value, &mut out) };
-    if status == NAPI_OK { Ok(out) } else { Err(format!("napi_get_value_int32 failed status={status}")) }
+    if status == NAPI_OK {
+        Ok(out)
+    } else {
+        Err(format!("napi_get_value_int32 failed status={status}"))
+    }
 }
 
 unsafe fn get_element(env: NapiEnv, value: NapiValue, index: u32) -> Option<NapiValue> {
@@ -419,25 +429,11 @@ unsafe fn export_function(env: NapiEnv, exports: NapiValue, name: &'static CStr,
     if let Some(napi) = napi() {
         let mut func = null_mut();
         let status = unsafe { (napi.create_function)(env, name.as_ptr(), NAPI_AUTO_LENGTH, callback, null_mut(), &mut func) };
-        log(&format!("napi_create_function({}) status={status}", name.to_string_lossy()));
         if status == NAPI_OK && !func.is_null() {
             unsafe { set_named(env, exports, name, func) };
+        } else {
+            log(&format!("napi_create_function({}) failed status={status}", name.to_string_lossy()));
         }
-    }
-}
-
-unsafe extern "C" fn cb_load_vault_json_text(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
-    let (args, _) = unsafe { get_args(env, info, 1) };
-    let Some(first) = args.first().copied() else {
-        return unsafe { throw_error(env, "loadVaultJsonText requires a key") };
-    };
-    let key = match unsafe { value_to_string(env, first) } {
-        Ok(v) => v,
-        Err(e) => return unsafe { throw_error(env, &e) },
-    };
-    match resource::load_vault_json_text(&key) {
-        Ok(text) => unsafe { create_string(env, &text).unwrap_or_else(|| get_null(env)) },
-        Err(e) => unsafe { throw_error(env, &e) },
     }
 }
 
@@ -462,27 +458,11 @@ unsafe fn load_vault_json_value(env: NapiEnv, key: &str) -> NapiValue {
     let mut parsed = null_mut();
     let status = unsafe { (napi().unwrap().run_script)(env, script, &mut parsed) };
     if status == NAPI_OK && !parsed.is_null() {
-        log(&format!("loadVaultJson object ok key={key}"));
         parsed
     } else {
         log(&format!("loadVaultJson parse null key={key} status={status}"));
         unsafe { get_null(env) }
     }
-}
-
-unsafe extern "C" fn cb_load_vault_json(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
-    let (args, _) = unsafe { get_args(env, info, 1) };
-    let Some(first) = args.first().copied() else {
-        return unsafe { get_null(env) };
-    };
-    let key = match unsafe { value_to_string(env, first) } {
-        Ok(v) => v,
-        Err(e) => {
-            log(&format!("loadVaultJson null argument error={e}"));
-            return unsafe { get_null(env) };
-        }
-    };
-    unsafe { load_vault_json_value(env, &key) }
 }
 
 unsafe extern "C" fn cb_dispatch(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
@@ -496,10 +476,7 @@ unsafe extern "C" fn cb_dispatch(env: NapiEnv, info: NapiCallbackInfo) -> NapiVa
         Err(e) => return unsafe { throw_error(env, &e) },
     };
     match opcode {
-        OPCODE_ENV_CHECK => {
-            log("dispatcher opcode=0x352b4710 slot=0 handler00");
-            unsafe { create_bool(env, true) }
-        }
+        OPCODE_ENV_CHECK => unsafe { create_bool(env, true) },
         OPCODE_LOAD_JSON => {
             let key_value = if args.len() >= 2 {
                 args[1]
@@ -516,29 +493,9 @@ unsafe extern "C" fn cb_dispatch(env: NapiEnv, info: NapiCallbackInfo) -> NapiVa
                     return unsafe { get_null(env) };
                 }
             };
-            log(&format!("dispatcher opcode=0x1ed53fef slot=9 loadVaultJson key={key}"));
             unsafe { load_vault_json_value(env, &key) }
         }
         _ => unsafe { throw_error(env, &format!("unsupported dispatcher opcode=0x{opcode:08x}")) },
-    }
-}
-
-unsafe extern "C" fn cb_read_image_resource(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
-    let (args, _) = unsafe { get_args(env, info, 1) };
-    let Some(first) = args.first().copied() else {
-        return unsafe { get_null(env) };
-    };
-    let key = match unsafe { value_to_string(env, first) } {
-        Ok(v) => v,
-        Err(e) => return unsafe { throw_error(env, &e) },
-    };
-    match resource::read_image_resource(&key) {
-        Ok(bytes) if !bytes.is_empty() => unsafe { create_arraybuffer(env, &bytes).unwrap_or_else(|| get_null(env)) },
-        Ok(_) => unsafe { get_null(env) },
-        Err(e) => {
-            log(&format!("readImageResource null key={key} code=0x{:02x} error={}", e.code(), e.message()));
-            unsafe { get_null(env) }
-        }
     }
 }
 
@@ -575,7 +532,9 @@ unsafe extern "C" fn img_job_deliver_to_js(env: NapiEnv, js_callback: NapiValue,
         let recv = unsafe { get_undefined(env) };
         let mut call_result = null_mut();
         let status = unsafe { (napi.call_function)(env, recv, js_callback, 2, cb_args.as_ptr(), &mut call_result) };
-        log(&format!("ImgJob::deliverToJs callback status={status}"));
+        if status != NAPI_OK {
+            log(&format!("ImgJob::deliverToJs callback failed status={status}"));
+        }
     }
 }
 
@@ -588,7 +547,11 @@ unsafe extern "C" fn cb_img_job_wire10_async(env: NapiEnv, info: NapiCallbackInf
         Ok(v) if !v.is_empty() => v,
         _ => return unsafe { get_null(env) },
     };
-    let base_path = args.get(1).copied().and_then(|v| unsafe { value_to_string(env, v).ok() }).unwrap_or_default();
+    let _base_path = args
+        .get(1)
+        .copied()
+        .and_then(|v| unsafe { value_to_string(env, v).ok() })
+        .unwrap_or_default();
     let callback = args[2];
     if !unsafe { value_is_function(env, callback) } {
         return unsafe { get_null(env) };
@@ -606,9 +569,26 @@ unsafe extern "C" fn cb_img_job_wire10_async(env: NapiEnv, info: NapiCallbackInf
     };
 
     let mut tsfn = null_mut();
-    let status = unsafe { (napi_api.create_threadsafe_function)(env, callback, null_mut(), resource_name, 0x200, 1, null_mut(), null_mut(), null_mut(), Some(img_job_deliver_to_js), &mut tsfn) };
-    log(&format!("ImgJob::ensureThreadsafeDelivery create_threadsafe_function status={status} tsfn_is_null={}", tsfn.is_null()));
+    let status = unsafe {
+        (napi_api.create_threadsafe_function)(
+            env,
+            callback,
+            null_mut(),
+            resource_name,
+            0x200,
+            1,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            Some(img_job_deliver_to_js),
+            &mut tsfn,
+        )
+    };
     if status != NAPI_OK || tsfn.is_null() {
+        log(&format!(
+            "ImgJob::ensureThreadsafeDelivery failed status={status} tsfn_is_null={}",
+            tsfn.is_null()
+        ));
         let null_value = unsafe { get_null(env) };
         let cb_args = [null_value, null_value];
         let mut result = null_mut();
@@ -617,34 +597,42 @@ unsafe extern "C" fn cb_img_job_wire10_async(env: NapiEnv, info: NapiCallbackInf
     }
 
     let tsfn_addr = tsfn as usize;
-    log(&format!("ImgJob::submitAsync key={key} base={base_path}"));
     thread::spawn(move || {
         let outcome = match resource::read_image_resource(&key) {
-            Ok(bytes) if !bytes.is_empty() => {
-                resource::log(&format!("ImgJob worker ok key={key} bytes={}", bytes.len()));
-                ImgJobResult { bytes: Some(bytes), error_code: 0 }
-            }
-            Ok(_) => {
-                resource::log(&format!("ImgJob worker empty key={key}"));
-                ImgJobResult { bytes: None, error_code: 0xf9 }
-            }
+            Ok(bytes) if !bytes.is_empty() => ImgJobResult {
+                bytes: Some(bytes),
+                error_code: 0,
+            },
+            Ok(_) => ImgJobResult {
+                bytes: None,
+                error_code: 0xf9,
+            },
             Err(e) => {
                 resource::log(&format!("ImgJob worker failed key={key} code=0x{:02x} error={}", e.code(), e.message()));
-                ImgJobResult { bytes: None, error_code: e.code() }
+                ImgJobResult {
+                    bytes: None,
+                    error_code: e.code(),
+                }
             }
         };
         let payload = Box::into_raw(Box::new(outcome)) as *mut c_void;
         let tsfn = tsfn_addr as NapiThreadsafeFunction;
         if let Some(napi) = napi() {
             let status = unsafe { (napi.call_threadsafe_function)(tsfn, payload, 1) };
-            resource::log(&format!("ImgJob::queueDelivery call_threadsafe_function status={status} key={key}"));
             if status != NAPI_OK {
+                resource::log(&format!(
+                    "ImgJob::queueDelivery call_threadsafe_function failed status={status} key={key}"
+                ));
                 unsafe {
                     let _ = Box::from_raw(payload as *mut ImgJobResult);
                 }
             }
             let release_status = unsafe { (napi.release_threadsafe_function)(tsfn, 0) };
-            resource::log(&format!("ImgJob::queueDelivery release_threadsafe_function status={release_status} key={key}"));
+            if release_status != NAPI_OK {
+                resource::log(&format!(
+                    "ImgJob::queueDelivery release_threadsafe_function failed status={release_status} key={key}"
+                ));
+            }
         } else {
             unsafe {
                 let _ = Box::from_raw(payload as *mut ImgJobResult);
@@ -653,26 +641,6 @@ unsafe extern "C" fn cb_img_job_wire10_async(env: NapiEnv, info: NapiCallbackInf
     });
 
     unsafe { get_undefined(env) }
-}
-
-unsafe extern "C" fn cb_is_allowed_fs_write(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
-    let (args, _) = unsafe { get_args(env, info, 1) };
-    let path = args.first().copied().and_then(|v| unsafe { value_to_string(env, v).ok() }).unwrap_or_default();
-    unsafe { create_bool(env, resource::is_allowed_fs_write(&path)) }
-}
-
-unsafe extern "C" fn cb_scan_environment(env: NapiEnv, _info: NapiCallbackInfo) -> NapiValue {
-    let Some(napi) = napi() else {
-        return unsafe { get_null(env) };
-    };
-    let mut obj = null_mut();
-    let status = unsafe { (napi.create_object)(env, &mut obj) };
-    if status == NAPI_OK && !obj.is_null() {
-        unsafe { set_named(env, obj, c"ok", create_bool(env, true)) };
-        obj
-    } else {
-        unsafe { get_null(env) }
-    }
 }
 
 unsafe extern "C" fn cb_install_window_hooks(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
@@ -689,8 +657,14 @@ unsafe extern "C" fn cb_install_window_hooks(env: NapiEnv, info: NapiCallbackInf
     };
     let mut result = null_mut();
     let status = unsafe { (napi().unwrap().run_script)(env, script, &mut result) };
-    log(&format!("installWindowHooks run_script status={status}"));
-    if status == NAPI_OK && !result.is_null() { result } else { unsafe { create_bool(env, false) } }
+    if status != NAPI_OK {
+        log(&format!("installWindowHooks run_script failed status={status}"));
+    }
+    if status == NAPI_OK && !result.is_null() {
+        result
+    } else {
+        unsafe { create_bool(env, false) }
+    }
 }
 
 unsafe fn run_script_named(env: NapiEnv, phase: &str, script_text: &str) -> Option<NapiValue> {
@@ -704,8 +678,13 @@ unsafe fn run_script_named(env: NapiEnv, phase: &str, script_text: &str) -> Opti
     };
     let mut result = null_mut();
     let status = unsafe { (napi.run_script)(env, script, &mut result) };
-    log(&format!("{phase}: napi_run_script status={status} result_is_null={}", result.is_null()));
-    if status == NAPI_OK && !result.is_null() { Some(result) } else { None }
+    if status == NAPI_OK && !result.is_null() {
+        log(&format!("{phase} installed"));
+        Some(result)
+    } else {
+        log(&format!("{phase} failed status={status} result_is_null={}", result.is_null()));
+        None
+    }
 }
 
 fn initialize_runtime_state() {
@@ -740,11 +719,6 @@ unsafe fn define_core_exports(env: NapiEnv, exports: NapiValue) {
     log("napi_define_properties core exports begin");
     unsafe {
         export_function(env, exports, c"dispatch", cb_dispatch);
-        export_function(env, exports, c"loadVaultJson", cb_load_vault_json);
-        export_function(env, exports, c"loadVaultJsonText", cb_load_vault_json_text);
-        export_function(env, exports, c"readImageResource", cb_read_image_resource);
-        export_function(env, exports, c"scanEnvironment", cb_scan_environment);
-        export_function(env, exports, c"isAllowedFsWrite", cb_is_allowed_fs_write);
         export_function(env, exports, c"installWindowHooks", cb_install_window_hooks);
         if let Some(global) = get_global(env) {
             set_named(env, global, c"__mzNative", exports);
@@ -768,7 +742,7 @@ unsafe fn install_second_script_guard(env: NapiEnv, exports: NapiValue) -> NapiV
 }
 
 unsafe fn install_img_job_wire(env: NapiEnv, exports: NapiValue, second_guard_result: NapiValue) {
-    log(&format!("Addon::installImgJobWire begin second_guard_result_is_null={}", second_guard_result.is_null()));
+    log("Addon::installImgJobWire begin");
     unsafe {
         export_function(env, second_guard_result, c"ImgJobWire10Async", cb_img_job_wire10_async);
         if let Some(func) = get_named(env, exports, c"ImgJobWire10Async") {
@@ -812,10 +786,8 @@ fn reset_logs(root: &std::path::Path) {
     let mut paths = Vec::new();
     paths.push(std::path::PathBuf::from("mz_rust.log"));
     paths.push(std::path::PathBuf::from("mz_js.log"));
-    paths.push(std::path::PathBuf::from("CONOUT$"));
     paths.push(root.join("mz_rust.log"));
     paths.push(root.join("mz_js.log"));
-    paths.push(root.join("CONOUT$"));
     for path in paths {
         let _ = remove_file(path);
     }

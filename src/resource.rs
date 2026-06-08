@@ -87,17 +87,36 @@ struct Wrapper {
 }
 
 struct Mode2Ctx {
-    p34: u32,
-    p38: u32,
-    p30: u32,
-    p58: u32,
-    p54: u32,
-    p44: u32,
-    p4c: u32,
-    p50: u32,
+    token_hash_a: u32,
+    token_hash_b: u32,
+    wrapper_seed: u32,
+    wrapper_prefix: u32,
+    primary_reorder_enabled: u32,
+    mix_variant: u32,
+    reverse_modulus: u32,
+    reorder_seed: u32,
     delim: u8,
-    p3c: u32,
-    p40: u32,
+    vm_packed: u32,
+    vm_flag: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Mode2VmParams {
+    packed: u32,
+    flag: u32,
+}
+
+#[derive(Clone, Copy)]
+struct Mode2MixProfile {
+    first_shift: u32,
+    second_shift: u32,
+    final_shift: u32,
+    first_multiplier: u32,
+    second_multiplier: u32,
+    token_b_multiplier: u32,
+    xor_constant: u32,
+    seed_operand: u32,
+    token_a_operand: u32,
 }
 
 #[derive(Debug)]
@@ -137,7 +156,6 @@ pub fn root_dir() -> PathBuf {
 
 pub fn load_vault_json_text(input: &str) -> Result<String, String> {
     let norm_key = json_vault_key(input);
-    log(&format!("loadVaultJson begin key={norm_key}"));
     {
         let guard = state().lock().map_err(|_| "resource mutex poisoned".to_string())?;
         if let Some(cached) = guard.json_cache.get(&norm_key) {
@@ -160,7 +178,6 @@ pub fn load_vault_json_text(input: &str) -> Result<String, String> {
         let mut guard = state().lock().map_err(|_| "resource mutex poisoned".to_string())?;
         guard.json_cache.insert(norm_key.clone(), text.clone());
     }
-    log(&format!("loadVaultJson ok key={norm_key} bytes={}", text.len()));
     Ok(text)
 }
 
@@ -196,15 +213,6 @@ pub fn read_image_resource(input: &str) -> Result<Vec<u8>, ImageResourceError> {
         }
     }
     Err(ImageResourceError::new(0x23, format!("missing image resource record: {internal_key}")))
-}
-
-pub fn is_allowed_fs_write(target: &str) -> bool {
-    let root = root_dir();
-    let full = root.join(target);
-    let full_s = full.to_string_lossy().replace('/', "\\").to_lowercase();
-    let root_s = root.to_string_lossy().replace('/', "\\").to_lowercase();
-    let base = full.file_name().and_then(|v| v.to_str()).unwrap_or("").to_lowercase();
-    full_s.contains("\\save\\") || matches!(base.as_str(), "package.json" | "c" | "mz_rust.log") || (full_s.starts_with(&(root_s + "\\data\\")) && base.ends_with(".rmmzsave"))
 }
 
 pub fn log(message: &str) {
@@ -717,15 +725,15 @@ fn decode_mode_2d(wrapper: &Wrapper, token: &[u8; 32]) -> Result<Vec<u8>, String
     let mut ctx = derive_ctx(wrapper, token);
     let delim = ctx.delim as char;
     let mut blocks: Vec<String> = wrapper.d.split(delim).map(|s| s.to_string()).collect();
-    if blocks.len() >= 3 && ctx.p54 != 0 {
-        blocks = reorder_blocks(blocks, (ctx.p50 ^ ctx.p58) & 0xff, 5, 1, 7, 0x0b);
+    if blocks.len() >= 3 && ctx.primary_reorder_enabled != 0 {
+        blocks = reorder_blocks(blocks, (ctx.reorder_seed ^ ctx.wrapper_prefix) & 0xff, 5, 1, 7, 0x0b);
     }
-    if blocks.len() >= 2 && ((ctx.p38 ^ ctx.p30) & 1) == 1 {
-        blocks = reorder_blocks(blocks, ctx.p58 & 0xff, 1, 0, 3, 0x11);
+    if blocks.len() >= 2 && ((ctx.token_hash_b ^ ctx.wrapper_seed) & 1) == 1 {
+        blocks = reorder_blocks(blocks, ctx.wrapper_prefix & 0xff, 1, 0, 3, 0x11);
     }
-    let modulus = if ctx.p4c == 0 { 3 } else { ctx.p4c };
+    let modulus = if ctx.reverse_modulus == 0 { 3 } else { ctx.reverse_modulus };
     for (i, block) in blocks.iter_mut().enumerate() {
-        if ((ctx.p58 + i as u32) % modulus) == 1 {
+        if ((ctx.wrapper_prefix + i as u32) % modulus) == 1 {
             *block = block.chars().rev().collect();
         }
     }
@@ -737,23 +745,23 @@ fn decode_mode_2d(wrapper: &Wrapper, token: &[u8; 32]) -> Result<Vec<u8>, String
 }
 
 fn derive_ctx(wrapper: &Wrapper, token: &[u8; 32]) -> Mode2Ctx {
-    let p30 = parse_hex_u32(&wrapper.u);
-    let p38 = hash_token32_b(token);
-    let q = p30 ^ 0x21fc1a;
+    let wrapper_seed = parse_hex_u32(&wrapper.u);
+    let token_hash_b = hash_token32_b(token);
+    let q = wrapper_seed ^ 0x21fc1a;
     let idx = (q as u64).wrapping_sub((((q as u64) * 0xcccccccd) >> 34) * 5) as u32;
     let chars = b"-_:~|";
     Mode2Ctx {
-        p34: hash_token32_a(token),
-        p38,
-        p30,
-        p58: if wrapper.u.len() >= 2 { parse_hex_u32(&wrapper.u[0..2]) } else { 0 },
-        p54: 1,
-        p44: (p30 & 3) ^ 1,
-        p4c: 2,
-        p50: (p30 & 0xff) ^ (p38 & 0xff) ^ 0xf6,
+        token_hash_a: hash_token32_a(token),
+        token_hash_b,
+        wrapper_seed,
+        wrapper_prefix: if wrapper.u.len() >= 2 { parse_hex_u32(&wrapper.u[0..2]) } else { 0 },
+        primary_reorder_enabled: 1,
+        mix_variant: (wrapper_seed & 3) ^ 1,
+        reverse_modulus: 2,
+        reorder_seed: (wrapper_seed & 0xff) ^ (token_hash_b & 0xff) ^ 0xf6,
         delim: chars[(idx as usize) & 0xffffffffusize],
-        p3c: 0,
-        p40: 0,
+        vm_packed: 0,
+        vm_flag: 0,
     }
 }
 
@@ -791,67 +799,89 @@ fn gcd_for_native_step(mut cur: i32, mut den: i32) -> i32 {
 }
 
 fn compute_params(ctx: &mut Mode2Ctx) {
-    let r14 = ctx.p30;
-    let mut r10 = ctx.p34;
-    let mut rcx = 0x10u32;
-    let (rdx, r8, r11, rsi, rbx, rdi, rbp): (u32, u32, u32, u32, u32, u32, u32);
-    match ctx.p44 & 3 {
-        0 => {
-            r11 = 0x846ca68b;
-            rdx = 0x0f;
-            rsi = 0x7feb352d;
-            rbx = 0x4685fce1;
-            rdi = 0x9e3779b9;
-            rbp = r14;
-            r8 = 0x10;
-        }
-        1 => {
-            r11 = 0xc2b2ae35;
-            rdx = 0x0d;
-            rsi = 0x85ebca87;
-            rbx = 0x8d69fdec;
-            rdi = 0x27d4eb2d;
-            rbp = r14;
-            r8 = 0x10;
-        }
-        2 => {
-            r8 = 0x0d;
-            r11 = 0x846ca68b;
-            rdx = 0x10;
-            rsi = 0x7feb352d;
-            rcx = 0x0f;
-            rbx = 0x4685fce1;
-            rdi = 0xb5297a4d;
-            rbp = r14.rotate_left(1);
-        }
-        _ => {
-            rdx = 0x0f;
-            rsi = 0x6ed9eba1;
-            rbx = 0x55f39b24;
-            rdi = 0x9e3779b9;
-            rbp = r10.wrapping_add(0x21fc1a);
-            r10 = r14;
-            r11 = 0x9e3779b9;
-            r8 = 0x10;
+    let params = compute_mode2_vm_params(ctx.wrapper_seed, ctx.token_hash_a, ctx.token_hash_b, ctx.mix_variant);
+    ctx.vm_packed = params.packed;
+    ctx.vm_flag = params.flag;
+}
+
+fn compute_mode2_vm_params(wrapper_seed: u32, token_hash_a: u32, token_hash_b: u32, mix_variant: u32) -> Mode2VmParams {
+    let profile = Mode2MixProfile::for_variant(mix_variant, wrapper_seed, token_hash_a);
+    let mut mixed = profile.token_b_multiplier.wrapping_mul(token_hash_b) ^ profile.seed_operand ^ profile.token_a_operand ^ profile.xor_constant;
+    mixed = ((mixed >> profile.first_shift) ^ mixed).wrapping_mul(profile.first_multiplier);
+    mixed = ((mixed >> profile.second_shift) ^ mixed).wrapping_mul(profile.second_multiplier);
+    mixed = (mixed >> profile.final_shift) ^ mixed;
+
+    let selector = mode2_selector_byte(mixed);
+    let shifted = mixed >> 3;
+    let native_mod3 = shifted.wrapping_sub((((shifted as u64) * 0x55555556) >> 32).wrapping_mul(3) as u32);
+    Mode2VmParams {
+        packed: ((selector << 8).wrapping_add(native_mod3 << 3)) | (mixed % 3) | (mixed & 4),
+        flag: (mixed >> 2) & 1,
+    }
+}
+
+impl Mode2MixProfile {
+    fn for_variant(variant: u32, wrapper_seed: u32, token_hash_a: u32) -> Self {
+        match variant & 3 {
+            0 => Self {
+                first_shift: 0x10,
+                second_shift: 0x0f,
+                final_shift: 0x10,
+                first_multiplier: 0x7feb352d,
+                second_multiplier: 0x846ca68b,
+                token_b_multiplier: 0x9e3779b9,
+                xor_constant: 0x4685fce1,
+                seed_operand: wrapper_seed,
+                token_a_operand: token_hash_a,
+            },
+            1 => Self {
+                first_shift: 0x10,
+                second_shift: 0x0d,
+                final_shift: 0x10,
+                first_multiplier: 0x85ebca87,
+                second_multiplier: 0xc2b2ae35,
+                token_b_multiplier: 0x27d4eb2d,
+                xor_constant: 0x8d69fdec,
+                seed_operand: wrapper_seed,
+                token_a_operand: token_hash_a,
+            },
+            2 => Self {
+                first_shift: 0x0f,
+                second_shift: 0x10,
+                final_shift: 0x0d,
+                first_multiplier: 0x7feb352d,
+                second_multiplier: 0x846ca68b,
+                token_b_multiplier: 0xb5297a4d,
+                xor_constant: 0x4685fce1,
+                seed_operand: wrapper_seed.rotate_left(1),
+                token_a_operand: token_hash_a,
+            },
+            _ => Self {
+                first_shift: 0x10,
+                second_shift: 0x0f,
+                final_shift: 0x10,
+                first_multiplier: 0x6ed9eba1,
+                second_multiplier: 0x9e3779b9,
+                token_b_multiplier: 0x9e3779b9,
+                xor_constant: 0x55f39b24,
+                seed_operand: token_hash_a.wrapping_add(0x21fc1a),
+                token_a_operand: wrapper_seed,
+            },
         }
     }
-    let mut x = rdi.wrapping_mul(ctx.p38) ^ rbp ^ r10 ^ rbx;
-    x = ((x >> rcx) ^ x).wrapping_mul(rsi);
-    x = ((x >> rdx) ^ x).wrapping_mul(r11);
-    x = (x >> r8) ^ x;
-    let mut c = (x >> 5) & 0xff;
-    if c == 0 {
-        let v = x >> 13;
-        c = (v as u64).wrapping_sub((((v as u64) * 0x1010102) >> 32) * 0xff).wrapping_add(1) as u32;
+}
+
+fn mode2_selector_byte(mixed: u32) -> u32 {
+    let selector = (mixed >> 5) & 0xff;
+    if selector != 0 {
+        return selector;
     }
-    let v = x >> 3;
-    let mod3 = (v as u64).wrapping_sub((((v as u64) * 0x55555556) >> 32) * 3) as u32;
-    ctx.p3c = ((c << 8).wrapping_add(mod3 << 3)) | (x % 3) | (x & 4);
-    ctx.p40 = (x >> 2) & 1;
+    let shifted = mixed >> 13;
+    shifted.wrapping_sub((((shifted as u64) * 0x1010102) >> 32).wrapping_mul(0xff) as u32).wrapping_add(1)
 }
 
 fn apply_mode2_vm_transforms(buf: &mut [u8], ctx: &Mode2Ctx, token: &[u8; 32]) -> Result<(), String> {
-    let slots = [ctx.p30, ctx.p3c, ctx.p40, buf.len() as u32, ctx.p3c & 3];
+    let slots = [ctx.wrapper_seed, ctx.vm_packed, ctx.vm_flag, buf.len() as u32, ctx.vm_packed & 3];
     let mut stack: Vec<u32> = Vec::new();
     let mut loop_index = 0u32;
     let mut pc = 0usize;
@@ -893,7 +923,7 @@ fn apply_mode2_vm_transforms(buf: &mut [u8], ctx: &Mode2Ctx, token: &[u8; 32]) -
                 pc = ((pc + 1) as isize + off as isize) as usize;
             }
             0x1f => pc += 1,
-            0x32 => f7fb_xor_byte(buf, loop_index as usize, ctx.p30 as u8, token),
+            0x32 => f7fb_xor_byte(buf, loop_index as usize, ctx.wrapper_seed as u8, token),
             0x30 => f6f9_state = Some(init_f6f9_state(ctx, buf.len(), token)),
             0x31 => {
                 if f6f9_state.is_none() {
@@ -904,7 +934,7 @@ fn apply_mode2_vm_transforms(buf: &mut [u8], ctx: &Mode2Ctx, token: &[u8; 32]) -
                     f6f9_stream_byte(state, *byte19, buf, idx);
                 }
             }
-            0x33 => f6c6_ror_xor_byte(buf, loop_index as usize, ctx.p30 as u8, token),
+            0x33 => f6c6_ror_xor_byte(buf, loop_index as usize, ctx.wrapper_seed as u8, token),
             0x34 => return Ok(()),
             _ => return Err(format!("unknown mode2 opcode 0x{op:x} raw=0x{raw:x}")),
         }
@@ -915,15 +945,15 @@ fn apply_mode2_vm_transforms(buf: &mut [u8], ctx: &Mode2Ctx, token: &[u8; 32]) -
 fn init_f6f9_state(ctx: &Mode2Ctx, len: usize, token: &[u8; 32]) -> ([u32; 8], u8) {
     let mut state = [0u32; 8];
     state[7] = len as u32;
-    state[3] = ctx.p30;
-    state[4] = (ctx.p3c >> 3) & 3;
-    state[5] = (ctx.p3c >> 8) & 0xff;
+    state[3] = ctx.wrapper_seed;
+    state[4] = (ctx.vm_packed >> 3) & 3;
+    state[5] = (ctx.vm_packed >> 8) & 0xff;
     state[1] = hash_token32_a(token);
     state[2] = hash_token32_b(token);
-    let seed = ctx.p30 ^ state[1] ^ state[2].wrapping_mul(0x5b02f25f) ^ 0xfaf6f2a3;
+    let seed = ctx.wrapper_seed ^ state[1] ^ state[2].wrapping_mul(0x5b02f25f) ^ 0xfaf6f2a3;
     state[0] = read_u32_le(token, 0).unwrap() ^ read_u32_le(token, 4).unwrap() ^ read_u32_le(token, 8).unwrap() ^ read_u32_le(token, 12).unwrap() ^ seed ^ 0x4ea92ee7;
-    state[6] = ctx.p30 & 0xff;
-    let byte19 = (((ctx.p30 >> 16) & 0xff) ^ (ctx.p30 & 0xff) ^ (state[1] & 0xff) ^ (state[2] & 0xff)) as u8;
+    state[6] = ctx.wrapper_seed & 0xff;
+    let byte19 = (((ctx.wrapper_seed >> 16) & 0xff) ^ (ctx.wrapper_seed & 0xff) ^ (state[1] & 0xff) ^ (state[2] & 0xff)) as u8;
     (state, byte19)
 }
 

@@ -61,16 +61,19 @@
 		if (typeof proto._startDecrypting !== "function" || typeof proto._onXhrLoad !== "function") return false;
 
 		const nativeStartDecrypting = proto._startDecrypting;
+		let loggedBitmapPath = false;
 		proto._startDecrypting = function () {
 			const bitmap = this;
 			const url = String(bitmap._url || "");
 			const root = gameRoot();
-			log("bitmap __mzIw10 begin url=" + url);
 			try {
 				globalThis.__mzIw10(url, root, function (arrayBuffer, errorCode) {
 					try {
 						if (arrayBuffer && !errorCode) {
-							log("bitmap __mzIw10 ok url=" + url + " bytes=" + arrayBuffer.byteLength);
+							if (!loggedBitmapPath) {
+								loggedBitmapPath = true;
+								log("bitmap __mzIw10 path url=" + url + " bytes=" + arrayBuffer.byteLength);
+							}
 							return bitmap._onXhrLoad(makeXhrLike(200, arrayBuffer));
 						}
 						log("bitmap __mzIw10 fail url=" + url + " code=" + errorCode);
@@ -91,16 +94,6 @@
 		return true;
 	}
 
-	function installFetchPassThrough(obj) {
-		if (!obj || typeof obj.fetch !== "function" || obj.fetch.__mzRustHooked) return;
-		const nativeFetch = obj.fetch;
-		const hookedFetch = function (input, init) {
-			return nativeFetch.call(this, input, init);
-		};
-		Object.defineProperty(hookedFetch, "__mzRustHooked", { value: true });
-		obj.fetch = hookedFetch;
-	}
-
 	function deferBitmapHook(obj) {
 		let wait = 0;
 		function step() {
@@ -113,10 +106,7 @@
 		step();
 	}
 
-	log("installWindowHooks called hasTarget=" + !!target + " hasBitmap=" + !!(target && target.Bitmap));
 	installDiagnostics(target);
-	installFetchPassThrough(target);
 	deferBitmapHook(target);
-	log("installWindowHooks done bitmapHooked=" + !!(target && target.Bitmap && target.Bitmap.prototype.__mzBitmapHooked));
 	return true;
 })();
