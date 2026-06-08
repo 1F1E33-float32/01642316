@@ -444,7 +444,10 @@ unsafe extern "C" fn cb_load_vault_json_text(env: NapiEnv, info: NapiCallbackInf
 unsafe fn load_vault_json_value(env: NapiEnv, key: &str) -> NapiValue {
     let text = match resource::load_vault_json_text(key) {
         Ok(text) => text,
-        Err(e) => return unsafe { throw_error(env, &e) },
+        Err(e) => {
+            log(&format!("loadVaultJson null key={key} error={e}"));
+            return unsafe { get_null(env) };
+        }
     };
     let Some(text_value) = (unsafe { create_string(env, &text) }) else {
         return unsafe { get_null(env) };
@@ -462,18 +465,22 @@ unsafe fn load_vault_json_value(env: NapiEnv, key: &str) -> NapiValue {
         log(&format!("loadVaultJson object ok key={key}"));
         parsed
     } else {
-        unsafe { throw_error(env, &format!("JSON.parse run_script failed status={status}")) }
+        log(&format!("loadVaultJson parse null key={key} status={status}"));
+        unsafe { get_null(env) }
     }
 }
 
 unsafe extern "C" fn cb_load_vault_json(env: NapiEnv, info: NapiCallbackInfo) -> NapiValue {
     let (args, _) = unsafe { get_args(env, info, 1) };
     let Some(first) = args.first().copied() else {
-        return unsafe { throw_error(env, "loadVaultJson requires a key") };
+        return unsafe { get_null(env) };
     };
     let key = match unsafe { value_to_string(env, first) } {
         Ok(v) => v,
-        Err(e) => return unsafe { throw_error(env, &e) },
+        Err(e) => {
+            log(&format!("loadVaultJson null argument error={e}"));
+            return unsafe { get_null(env) };
+        }
     };
     unsafe { load_vault_json_value(env, &key) }
 }
@@ -499,12 +506,15 @@ unsafe extern "C" fn cb_dispatch(env: NapiEnv, info: NapiCallbackInfo) -> NapiVa
             } else {
                 match unsafe { get_element(env, first, 1) } {
                     Some(v) => v,
-                    None => return unsafe { throw_error(env, "dispatch JSON opcode requires key") },
+                    None => return unsafe { get_null(env) },
                 }
             };
             let key = match unsafe { value_to_string(env, key_value) } {
                 Ok(v) => v,
-                Err(e) => return unsafe { throw_error(env, &e) },
+                Err(e) => {
+                    log(&format!("dispatcher loadVaultJson null argument error={e}"));
+                    return unsafe { get_null(env) };
+                }
             };
             log(&format!("dispatcher opcode=0x1ed53fef slot=9 loadVaultJson key={key}"));
             unsafe { load_vault_json_value(env, &key) }
@@ -523,9 +533,12 @@ unsafe extern "C" fn cb_read_image_resource(env: NapiEnv, info: NapiCallbackInfo
         Err(e) => return unsafe { throw_error(env, &e) },
     };
     match resource::read_image_resource(&key) {
-        Ok(Some(bytes)) => unsafe { create_arraybuffer(env, &bytes).unwrap_or_else(|| get_null(env)) },
-        Ok(None) => unsafe { get_null(env) },
-        Err(e) => unsafe { throw_error(env, &e) },
+        Ok(bytes) if !bytes.is_empty() => unsafe { create_arraybuffer(env, &bytes).unwrap_or_else(|| get_null(env)) },
+        Ok(_) => unsafe { get_null(env) },
+        Err(e) => {
+            log(&format!("readImageResource null key={key} code=0x{:02x} error={}", e.code(), e.message()));
+            unsafe { get_null(env) }
+        }
     }
 }
 
@@ -607,17 +620,17 @@ unsafe extern "C" fn cb_img_job_wire10_async(env: NapiEnv, info: NapiCallbackInf
     log(&format!("ImgJob::submitAsync key={key} base={base_path}"));
     thread::spawn(move || {
         let outcome = match resource::read_image_resource(&key) {
-            Ok(Some(bytes)) if !bytes.is_empty() => {
+            Ok(bytes) if !bytes.is_empty() => {
                 resource::log(&format!("ImgJob worker ok key={key} bytes={}", bytes.len()));
                 ImgJobResult { bytes: Some(bytes), error_code: 0 }
             }
             Ok(_) => {
-                resource::log(&format!("ImgJob worker missing key={key}"));
-                ImgJobResult { bytes: None, error_code: 0x23 }
+                resource::log(&format!("ImgJob worker empty key={key}"));
+                ImgJobResult { bytes: None, error_code: 0xf9 }
             }
             Err(e) => {
-                resource::log(&format!("ImgJob worker failed key={key} error={e}"));
-                ImgJobResult { bytes: None, error_code: 0xf9 }
+                resource::log(&format!("ImgJob worker failed key={key} code=0x{:02x} error={}", e.code(), e.message()));
+                ImgJobResult { bytes: None, error_code: e.code() }
             }
         };
         let payload = Box::into_raw(Box::new(outcome)) as *mut c_void;

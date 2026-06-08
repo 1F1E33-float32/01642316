@@ -100,6 +100,26 @@ struct Mode2Ctx {
     p40: u32,
 }
 
+#[derive(Debug)]
+pub struct ImageResourceError {
+    code: u32,
+    message: String,
+}
+
+impl ImageResourceError {
+    fn new(code: u32, message: impl Into<String>) -> Self {
+        Self { code, message: message.into() }
+    }
+
+    pub fn code(&self) -> u32 {
+        self.code
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
 pub fn init_root() -> PathBuf {
     let root = detect_root_dir();
     let _ = STATE.set(Mutex::new(ResourceState {
@@ -144,29 +164,38 @@ pub fn load_vault_json_text(input: &str) -> Result<String, String> {
     Ok(text)
 }
 
-pub fn read_image_resource(input: &str) -> Result<Option<Vec<u8>>, String> {
+pub fn read_image_resource(input: &str) -> Result<Vec<u8>, ImageResourceError> {
     let p = normalize_url_path(input).trim_end_matches('_').to_string();
+    if p.is_empty() || !p.to_lowercase().starts_with("img/") {
+        return Err(ImageResourceError::new(0x20, format!("invalid image request path: {input}")));
+    }
     let direct = [p.clone(), format!("{p}_")];
     let root = root_dir();
     for rel in direct {
         let full = root.join(&rel);
         if full.is_file() {
-            return fs::read(&full).map(Some).map_err(|e| format!("read image file {} failed: {e}", full.display()));
+            return fs::read(&full).map_err(|e| ImageResourceError::new(0x23, format!("read image file {} failed: {e}", full.display())));
         }
     }
     let containers = resolve_dat_containers_for_image(&p);
     if containers.is_empty() {
-        return Ok(None);
+        return Err(ImageResourceError::new(0x22, format!("image physical resource path not resolved: {p}")));
     }
     let internal_key = normalize_image_resource_key(&p);
     let decode_mode = fnv1a32(&internal_key, false);
     let hash = fnv1a64_normalized(&internal_key);
     for container in containers {
-        if let Some(payload) = read_container_resource(container, &internal_key, decode_mode, hash)? {
-            return decode_image_payload_for_xhr(payload).map(Some);
+        match read_container_resource(container.clone(), &internal_key, decode_mode, hash) {
+            Ok(Some(payload)) => {
+                return decode_image_payload_for_xhr(payload).map_err(|e| ImageResourceError::new(0x23, e));
+            }
+            Ok(None) => {}
+            Err(e) => {
+                return Err(ImageResourceError::new(0x23, format!("read image container {} failed: {e}", container.display())));
+            }
         }
     }
-    Ok(None)
+    Err(ImageResourceError::new(0x23, format!("missing image resource record: {internal_key}")))
 }
 
 pub fn is_allowed_fs_write(target: &str) -> bool {
