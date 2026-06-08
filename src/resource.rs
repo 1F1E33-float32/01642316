@@ -29,14 +29,11 @@ const IMAGE_EXT_TAG: u64 = 0x474d49364b450000;
 const JSON_EXT_TAG: u64 = 0x004a534f4e364b45;
 
 const MODE2_VM_BYTECODE: [u8; 179] = [
-    0xb4, 0x0b, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x67, 0xc7, 0x02, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x70, 0x4f, 0xc7,
-    0x04, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x70, 0x26, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x80, 0x2f, 0xc7, 0x03, 0x70, 0x1b, 0xc7, 0x04, 0xe6, 0x01, 0x00,
-    0x00, 0x00, 0x70, 0x0b, 0xc7, 0x04, 0xe6, 0x02, 0x00, 0x00, 0x00, 0x70, 0x05, 0x14, 0x04, 0x41, 0x14, 0x01, 0xdc, 0x59, 0x14, 0xe0, 0xa1, 0xe6,
-    0x00, 0x00, 0x00, 0x00, 0x80, 0x2f, 0xc7, 0x03, 0x70, 0x12, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c,
-    0xa9, 0x59, 0x14, 0xe9, 0x14, 0x4b, 0xa1, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x80, 0x2f, 0xc7, 0x03, 0x70, 0x10, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c,
-    0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0xa9, 0x59, 0x14, 0xeb, 0xc7, 0x04, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x70, 0x26, 0xe6, 0x00, 0x00, 0x00, 0x00,
-    0x80, 0x2f, 0xc7, 0x03, 0x70, 0x1b, 0xc7, 0x04, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x70, 0x0b, 0xc7, 0x04, 0xe6, 0x02, 0x00, 0x00, 0x00, 0x70, 0x05,
-    0x14, 0x04, 0x41, 0x14, 0x01, 0xdc, 0x59, 0x14, 0xe0, 0x1f, 0xdd,
+    0xb4, 0x0b, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x67, 0xc7, 0x02, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x70, 0x4f, 0xc7, 0x04, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x70, 0x26, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x80, 0x2f, 0xc7, 0x03,
+    0x70, 0x1b, 0xc7, 0x04, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x70, 0x0b, 0xc7, 0x04, 0xe6, 0x02, 0x00, 0x00, 0x00, 0x70, 0x05, 0x14, 0x04, 0x41, 0x14, 0x01, 0xdc, 0x59, 0x14, 0xe0, 0xa1, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x80, 0x2f, 0xc7, 0x03, 0x70, 0x12,
+    0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0xa9, 0x59, 0x14, 0xe9, 0x14, 0x4b, 0xa1, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x80, 0x2f, 0xc7, 0x03, 0x70, 0x10, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c, 0x5c,
+    0x5c, 0x5c, 0x5c, 0xa9, 0x59, 0x14, 0xeb, 0xc7, 0x04, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x70, 0x26, 0xe6, 0x00, 0x00, 0x00, 0x00, 0x80, 0x2f, 0xc7, 0x03, 0x70, 0x1b, 0xc7, 0x04, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x70, 0x0b, 0xc7, 0x04, 0xe6, 0x02, 0x00,
+    0x00, 0x00, 0x70, 0x05, 0x14, 0x04, 0x41, 0x14, 0x01, 0xdc, 0x59, 0x14, 0xe0, 0x1f, 0xdd,
 ];
 
 const MODE2_VM_OPCODES: [u8; 179] = hex179(
@@ -129,8 +126,7 @@ pub fn load_vault_json_text(input: &str) -> Result<String, String> {
     }
     let decode_mode = fnv1a32(&norm_key, true);
     let hash = fnv1a64_normalized(&norm_key);
-    let payload = read_container_resource(Path::new("data").join("json.dat"), &norm_key, decode_mode, hash)?
-        .ok_or_else(|| format!("missing JSON vault record: {norm_key}"))?;
+    let payload = read_container_resource(Path::new("data").join("json.dat"), &norm_key, decode_mode, hash)?.ok_or_else(|| format!("missing JSON vault record: {norm_key}"))?;
     let wrapper = extract_wrapper(&payload)?;
     let (token, nonce) = wrapper_token_for(&norm_key, &wrapper, decode_mode)?;
     let mac = verify_wrapper_mac(&wrapper, &token, &nonce)?;
@@ -155,9 +151,7 @@ pub fn read_image_resource(input: &str) -> Result<Option<Vec<u8>>, String> {
     for rel in direct {
         let full = root.join(&rel);
         if full.is_file() {
-            return fs::read(&full)
-                .map(Some)
-                .map_err(|e| format!("read image file {} failed: {e}", full.display()));
+            return fs::read(&full).map(Some).map_err(|e| format!("read image file {} failed: {e}", full.display()));
         }
     }
     let containers = resolve_dat_containers_for_image(&p);
@@ -181,19 +175,13 @@ pub fn is_allowed_fs_write(target: &str) -> bool {
     let full_s = full.to_string_lossy().replace('/', "\\").to_lowercase();
     let root_s = root.to_string_lossy().replace('/', "\\").to_lowercase();
     let base = full.file_name().and_then(|v| v.to_str()).unwrap_or("").to_lowercase();
-    full_s.contains("\\save\\")
-        || matches!(base.as_str(), "package.json" | "c" | "mz_rust.log")
-        || (full_s.starts_with(&(root_s + "\\data\\")) && base.ends_with(".rmmzsave"))
+    full_s.contains("\\save\\") || matches!(base.as_str(), "package.json" | "c" | "mz_rust.log") || (full_s.starts_with(&(root_s + "\\data\\")) && base.ends_with(".rmmzsave"))
 }
 
 pub fn log(message: &str) {
     let root = detect_root_dir();
     let line = format!("[mz-rust-resource] {message}\r\n");
-    let _ = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(root.join("mz_rust.log"))
-        .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+    let _ = fs::OpenOptions::new().create(true).append(true).open(root.join("mz_rust.log")).and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
 }
 
 fn state() -> &'static Mutex<ResourceState> {
@@ -215,12 +203,7 @@ fn detect_root_dir() -> PathBuf {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let root = if dir
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(|s| s.eq_ignore_ascii_case("js"))
-                .unwrap_or(false)
-            {
+            let root = if dir.file_name().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("js")).unwrap_or(false) {
                 dir.parent().unwrap_or(dir).to_path_buf()
             } else {
                 dir.to_path_buf()
@@ -447,11 +430,7 @@ fn maybe_install_dynamic_prefix(state: &mut ResourceState, index: &[u8], contain
     if table_off + table_len + 16 > index.len() {
         return Ok(());
     }
-    if read_u32_le(index, table_off)? != 0x4554534d
-        || read_u32_le(index, table_off + 4)? != 1
-        || read_u32_le(index, table_off + 8)? != 0x74
-        || read_u32_le(index, table_off + 0x0c)? != 0x10
-    {
+    if read_u32_le(index, table_off)? != 0x4554534d || read_u32_le(index, table_off + 4)? != 1 || read_u32_le(index, table_off + 8)? != 0x74 || read_u32_le(index, table_off + 0x0c)? != 0x10 {
         return Ok(());
     }
     let block = &index[table_off..table_off + table_len];
@@ -508,9 +487,7 @@ fn find_record(index: &[u8], record_count: usize, hash: u64) -> Result<Option<Re
 }
 
 fn decode_record_payload(loaded: &LoadedContainer, record: &Record, path_hash: u64, decode_mode: u32) -> Result<Vec<u8>, String> {
-    if record.payload_length > loaded.container.effective_size
-        || record.payload_offset > loaded.container.effective_size.saturating_sub(record.payload_length)
-    {
+    if record.payload_length > loaded.container.effective_size || record.payload_offset > loaded.container.effective_size.saturating_sub(record.payload_length) {
         return Err("record payload out of range".to_string());
     }
     let start = record.payload_offset;
@@ -548,9 +525,7 @@ fn derive_extended_record_key(record: &Record, is_json: bool, hash: u64, caller_
         let params = Params::new(0x18000, 1, 8, Some(0x20)).map_err(|e| format!("argon2 params failed: {e}"))?;
         let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
         let mut out = [0u8; 32];
-        argon2
-            .hash_password_into(&material, &record.key_a, &mut out)
-            .map_err(|e| format!("argon2id failed: {e}"))?;
+        argon2.hash_password_into(&material, &record.key_a, &mut out).map_err(|e| format!("argon2id failed: {e}"))?;
         Ok(out)
     } else {
         Ok(sha256(&material))
@@ -589,11 +564,7 @@ fn derive_json_wrapper_token_static(wrapper: &Wrapper, decode_mode: u32) -> Resu
     let mut msg = [0u8; 0x25];
     let prefix = {
         let guard = state().lock().map_err(|_| "resource mutex poisoned".to_string())?;
-        if let Some(dynamic) = guard.dynamic_prefix {
-            dynamic[0..8].try_into().unwrap()
-        } else {
-            [0u8; 8]
-        }
+        if let Some(dynamic) = guard.dynamic_prefix { dynamic[0..8].try_into().unwrap() } else { [0u8; 8] }
     };
     msg[0..8].copy_from_slice(&prefix);
     msg[8..12].copy_from_slice(&u.to_le_bytes());
@@ -704,12 +675,7 @@ fn apply_native_image_transform(buf: &mut [u8], len4: usize, hash: u32, token: &
     let state2 = hash;
     let hash_a = hash_token32_a(token);
     let seed = hash_a ^ hash ^ state1.wrapping_mul(0x04b22496) ^ 0x391195b2;
-    let mut state0 = read_u32_le(token, 0).unwrap()
-        ^ read_u32_le(token, 4).unwrap()
-        ^ read_u32_le(token, 8).unwrap()
-        ^ read_u32_le(token, 12).unwrap()
-        ^ seed
-        ^ 0x38455f1a;
+    let mut state0 = read_u32_le(token, 0).unwrap() ^ read_u32_le(token, 4).unwrap() ^ read_u32_le(token, 8).unwrap() ^ read_u32_le(token, 12).unwrap() ^ seed ^ 0x38455f1a;
     for i in 0..(len4 - 0x110) {
         state0 = state0.wrapping_mul(0x13ff3d2a).wrapping_add(0x000b971a) ^ (state2 >> 5) ^ state1;
         let lane = (((i as u32 & 0x1f) ^ 0x10).wrapping_add(0xb9) & 0xff) as u8;
@@ -926,12 +892,7 @@ fn init_f6f9_state(ctx: &Mode2Ctx, len: usize, token: &[u8; 32]) -> ([u32; 8], u
     state[1] = hash_token32_a(token);
     state[2] = hash_token32_b(token);
     let seed = ctx.p30 ^ state[1] ^ state[2].wrapping_mul(0x5b02f25f) ^ 0xfaf6f2a3;
-    state[0] = read_u32_le(token, 0).unwrap()
-        ^ read_u32_le(token, 4).unwrap()
-        ^ read_u32_le(token, 8).unwrap()
-        ^ read_u32_le(token, 12).unwrap()
-        ^ seed
-        ^ 0x4ea92ee7;
+    state[0] = read_u32_le(token, 0).unwrap() ^ read_u32_le(token, 4).unwrap() ^ read_u32_le(token, 8).unwrap() ^ read_u32_le(token, 12).unwrap() ^ seed ^ 0x4ea92ee7;
     state[6] = ctx.p30 & 0xff;
     let byte19 = (((ctx.p30 >> 16) & 0xff) ^ (ctx.p30 & 0xff) ^ (state[1] & 0xff) ^ (state[2] & 0xff)) as u8;
     (state, byte19)
@@ -983,9 +944,7 @@ fn transform_buffer(buf: &mut [u8], key_a: u64, key_b: u64) {
 }
 
 fn prf64_at(key_a: u64, key_b: u64, i: u64) -> u64 {
-    let v8 = neg64(0x29170143ff82e97f)
-        .wrapping_sub(i.wrapping_mul(0x29170143ff82e97f))
-        .wrapping_add(key_b.rotate_left(((i * 13 + 7) % 59) as u32) ^ key_a);
+    let v8 = neg64(0x29170143ff82e97f).wrapping_sub(i.wrapping_mul(0x29170143ff82e97f)).wrapping_add(key_b.rotate_left(((i * 13 + 7) % 59) as u32) ^ key_a);
     let t = neg64(0x40a7b892e31b1a47).wrapping_mul(v8.rotate_left(27) ^ v8);
     let u = neg64(0x6b2fb644ecceee15).wrapping_mul((t >> 29) ^ t);
     key_a.wrapping_add(i).rotate_left(((i + 3) % 61) as u32) ^ key_b.wrapping_sub(i.wrapping_mul(0x61c8864680b583eb)) ^ u ^ (u >> 31)
@@ -995,21 +954,13 @@ fn derive_transform_key_pair(path_hash: u64, decode_mode: u32, key32: &[u8; 32])
     let lo = path_hash & 0xffffffff;
     let hi = path_hash >> 32;
     let mode = decode_mode as u64;
-    let mut a = lo.wrapping_mul(0x9e3779b97f4a7c15)
-        ^ hi.wrapping_mul(0xc6a4a7935bd1e995)
-        ^ mode.wrapping_mul(0x27d4eb2f165667c5)
-        ^ hi.wrapping_mul(mode).rotate_left(17)
-        ^ 0x3939716bu64.wrapping_mul(0x85ebca6b5b152487);
+    let mut a = lo.wrapping_mul(0x9e3779b97f4a7c15) ^ hi.wrapping_mul(0xc6a4a7935bd1e995) ^ mode.wrapping_mul(0x27d4eb2f165667c5) ^ hi.wrapping_mul(mode).rotate_left(17) ^ 0x3939716bu64.wrapping_mul(0x85ebca6b5b152487);
     a = mix64_rounds(a);
     for (i, b) in key32.iter().enumerate() {
         a ^= (*b as u64) << ((i * 8) & 0x38);
         a = mix64_rounds(a);
     }
-    let mut b = hi.wrapping_mul(0x9e3779b97f4a7c15)
-        ^ mode.wrapping_mul(0xc6a4a7935bd1e995)
-        ^ lo.wrapping_mul(0x27d4eb2f165667c5)
-        ^ lo.wrapping_mul(mode).rotate_left(17)
-        ^ 0x30d42d2eu64.wrapping_mul(0x85ebca6b5b152487);
+    let mut b = hi.wrapping_mul(0x9e3779b97f4a7c15) ^ mode.wrapping_mul(0xc6a4a7935bd1e995) ^ lo.wrapping_mul(0x27d4eb2f165667c5) ^ lo.wrapping_mul(mode).rotate_left(17) ^ 0x30d42d2eu64.wrapping_mul(0x85ebca6b5b152487);
     b = mix64_rounds(b);
     for (i, x) in key32.iter().enumerate() {
         b ^= (*x as u64) << ((i * 8) & 0x38);
@@ -1087,20 +1038,12 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
 }
 
 fn read_u32_le(buf: &[u8], off: usize) -> Result<u32, String> {
-    let bytes: [u8; 4] = buf
-        .get(off..off + 4)
-        .ok_or_else(|| format!("u32 read out of range at {off:x}"))?
-        .try_into()
-        .unwrap();
+    let bytes: [u8; 4] = buf.get(off..off + 4).ok_or_else(|| format!("u32 read out of range at {off:x}"))?.try_into().unwrap();
     Ok(u32::from_le_bytes(bytes))
 }
 
 fn read_u64_le(buf: &[u8], off: usize) -> Result<u64, String> {
-    let bytes: [u8; 8] = buf
-        .get(off..off + 8)
-        .ok_or_else(|| format!("u64 read out of range at {off:x}"))?
-        .try_into()
-        .unwrap();
+    let bytes: [u8; 8] = buf.get(off..off + 8).ok_or_else(|| format!("u64 read out of range at {off:x}"))?.try_into().unwrap();
     Ok(u64::from_le_bytes(bytes))
 }
 
